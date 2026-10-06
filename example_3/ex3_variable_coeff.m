@@ -1,47 +1,33 @@
 clear; close all; clc;
+%% Parameters
+l = 1;                      
+t_list = [1.0, 50.0];        
+M_exact = 50;               
+M_list  = [2, 4, 8, 16];    
+N_grid  = 16;               
+N_slice = 64;               
+N_fft   = 128;              
+x3_slice = 0.5;             
+h_grid  = l / N_grid;       
 
-%% ==================== 例3：变系数 Maxwell 方程组（局部冻结系数法） ====================
-% 论文 RHF-Maxwell_new.tex 例3
-%   Omega = (0,1)^3, 周期边界条件
-%   mu(x)    = 2 + sin(2*pi*x1)*sin(2*pi*x2)*sin(2*pi*x3)
-%   eps(x)   = 2 + cos(2*pi*x1)*cos(2*pi*x2)*cos(2*pi*x3)
-%
-% 截断参数 M = 2, 4, 8, 16，参考精确解 M = 50
-% 分开计算两个时刻以便统计时间
-% 切片使用 M=8, t=50.0s 的3D网格数据，x3 取中间(0.5)
-
-%% ==================== 核心参数设置 ====================
-l = 1;                      % 区域边长
-t_list = [1.0, 50.0];        % 计算时间（分开计算）
-M_exact = 50;               % 参考精确解截断数
-M_list  = [2, 4, 8, 16];    % 测试截断数（2的指数倍）
-N_grid  = 16;               % 误差计算网格分辨率
-N_slice = 64;               % 切片图像网格分辨率（更高密度，更清晰）
-N_fft   = 128;              % FFT网格（>2*M_exact=100，无混叠）
-x3_slice = 0.5;             % 切片位置（中间）
-h_grid  = l / N_grid;       % 网格步长
-
-%% ==================== 变系数函数定义 ====================
 mu_func  = @(x1,x2,x3) 2 + sin(2*pi*x1).*sin(2*pi*x2).*sin(2*pi*x3);
 eps_func = @(x1,x2,x3) 2 + cos(2*pi*x1).*cos(2*pi*x2).*cos(2*pi*x3);
 
-%% ==================== 预计算初值条件的 Fourier 系数 ====================
-fprintf('计算初值条件 Fourier 系数 (N_fft=%d, M=%d)...\n', N_fft, M_exact);
+fprintf('Computing Fourier coefficients of the initial condition (N_fft=%d, M=%d)...\n', N_fft, M_exact);
 tic;
 modes_all = compute_initial_modes_ex3(M_exact, N_fft, l);
-fprintf('完成，共 %d 个非零模态，用时 %.2f 秒。\n', length(modes_all), toc);
+fprintf('Done, %d nonzero modes, time: %.2fs.\n', length(modes_all), toc);
 
 nM = length(M_list);
 n_t = length(t_list);
 
-%% ==================== 批量计算参考解（所有时刻一次完成，不计时） ====================
-fprintf('\n批量计算参考解 (M=%d, %d 个时刻)...\n', M_exact, n_t);
+fprintf('\nBatch reference solution (M=%d, %d time levels)...\n', M_exact, n_t);
 tic;
 modes_exact = filter_modes(modes_all, M_exact);
 [E_exact_all, H_exact_all] = evaluate_field_variable_coeff_batch(modes_exact, t_list, N_grid, l, mu_func, eps_func);
-fprintf('参考解完成，用时 %.2f 秒。\n', toc);
+fprintf('Reference solution done, time: %.2fs.\n', toc);
 
-%% ==================== 分开计算各时刻（独立计时） ====================
+%% Per-time-level computation (timed independently)
 results = struct();
 
 for t_idx = 1:n_t
@@ -53,18 +39,18 @@ for t_idx = 1:n_t
         'err_H', struct('Linf', zeros(1,nM), 'L2', zeros(1,nM), 'H1', zeros(1,nM)), ...
         'times', zeros(1, nM));
 
-    fprintf('\n========== t = %.1f s（独立计算）==========\n', t);
+    fprintf('\n========== t = %.1f s (timed independently) ==========\n', t);
 
     for m_idx = 1:nM
         M = M_list(m_idx);
-        fprintf('  计算 M=%d ...', M);
+        fprintf('  Computing M=%d ...', M);
         tic;
         modes_M = filter_modes(modes_all, M);
         [E_M, H_M] = evaluate_field_variable_coeff(modes_M, t, N_grid, l, mu_func, eps_func);
         elapsed = toc;
         results.(rkey).times(m_idx) = elapsed;
 
-        % 计算误差
+        % Compute errors
         [results.(rkey).err_E.Linf(m_idx), results.(rkey).err_E.L2(m_idx), results.(rkey).err_E.H1(m_idx)] = ...
             compute_error_norms(E_exact_all{t_idx}, E_M, h_grid);
         [results.(rkey).err_H.Linf(m_idx), results.(rkey).err_H.L2(m_idx), results.(rkey).err_H.H1(m_idx)] = ...
@@ -75,30 +61,29 @@ for t_idx = 1:n_t
     end
 end
 
-%% ==================== 用高分辨率网格(N_slice=64)计算2D切片 ====================
-fprintf('\n========== 计算2D切片 (N_slice=%d, x3=%.2f) ==========\n', N_slice, x3_slice);
+%% High-resolution 2D slice (N_slice = 64)
+fprintf('\n========== Computing 2D slice (N_slice=%d, x3=%.2f) ==========\n', N_slice, x3_slice);
 t_slice = 50.0;
 M_slice = 8;
 
-% 计算 M=8 数值解 2D切片 (t=50.0s)
-fprintf('计算 M=%d 数值解切片 (N=%d, t=%.1fs)...\n', M_slice, N_slice, t_slice);
+% Numerical solution slice (M = 8)
+fprintf('Computing M=%d numerical slice (N=%d, t=%.1fs)...\n', M_slice, N_slice, t_slice);
 tic;
 modes_M_slice = filter_modes(modes_all, M_slice);
 [E_slice_M8, H_slice_M8] = evaluate_field_slice_2d(modes_M_slice, t_slice, N_slice, l, x3_slice, mu_func, eps_func);
-fprintf('完成，用时 %.2f 秒。\n', toc);
+fprintf('Done, time: %.2fs.\n', toc);
 
-% 计算参考解 2D切片 (t=50.0s)
-fprintf('计算参考解 M=%d 切片 (N=%d, t=%.1fs)...\n', M_exact, N_slice, t_slice);
+% Reference solution slice (M = 50)
+fprintf('Computing M=%d reference slice (N=%d, t=%.1fs)...\n', M_exact, N_slice, t_slice);
 tic;
 [E_slice_exact, H_slice_exact] = evaluate_field_slice_2d(modes_exact, t_slice, N_slice, l, x3_slice, mu_func, eps_func);
-fprintf('完成，用时 %.2f 秒。\n', toc);
+fprintf('Done, time: %.2fs.\n', toc);
 
-% 绘制切片图和误差图（使用 N_slice 网格密度）
+% Slice plot and error plot (using N_slice resolution)
 plot_field_slice(E_slice_M8, H_slice_M8, N_slice, l, x3_slice);
 plot_error_slice(E_slice_exact, H_slice_exact, E_slice_M8, H_slice_M8, N_slice, l, x3_slice);
 
-%% ==================== 绘制 L^{\infty} 误差收敛对数图 (t=50.0s) ====================
-% 增加代数2阶和指数参考线（见 result.md 二/三节），起点取 M=2 时的实测误差
+%% L^infinity convergence plot at t = 50.0s
 r_t1 = results.t500;
 fig = figure('Position', [100 100 700 500]);
 hold on; grid on;
@@ -107,21 +92,19 @@ semilogy(r_t1.M_list, max(r_t1.err_E.Linf, 1e-16), '-o', 'Color', [0.000 0.447 0
 semilogy(r_t1.M_list, max(r_t1.err_H.Linf, 1e-16), '-s', 'Color', [0.850 0.325 0.098], ...
     'LineWidth', 1.5, 'MarkerSize', 8, 'DisplayName', 'H');
 
-% 参考线：代数2阶 e(M) = e(M=2) * (2/M)^2
 alg_ref_E = r_t1.err_E.Linf(1) * (2 ./ r_t1.M_list).^2;
 alg_ref_H = r_t1.err_H.Linf(1) * (2 ./ r_t1.M_list).^2;
 semilogy(r_t1.M_list, alg_ref_E, '--', 'Color', [0.000 0.447 0.741], ...
-    'LineWidth', 1.0, 'DisplayName', 'E:2阶代数收敛');
+    'LineWidth', 1.0, 'DisplayName', 'E: 2nd-order algebraic');
 semilogy(r_t1.M_list, alg_ref_H, '--', 'Color', [0.850 0.325 0.098], ...
-    'LineWidth', 1.0, 'DisplayName', 'H:2阶代数收敛');
+    'LineWidth', 1.0, 'DisplayName', 'H: 2nd-order algebraic');
 
-% 参考线：指数 e(M) = e(M=2) * exp(-(M-2))，即 result.md 中 c=1 的情形
 exp_ref_E = r_t1.err_E.Linf(1) * exp(-(r_t1.M_list - 2));
 exp_ref_H = r_t1.err_H.Linf(1) * exp(-(r_t1.M_list - 2));
 semilogy(r_t1.M_list, exp_ref_E, ':', 'Color', [0.000 0.447 0.741], ...
-    'LineWidth', 1.0, 'DisplayName', 'E:1阶指数收敛');
+    'LineWidth', 1.0, 'DisplayName', 'E: 1st-order exponential');
 semilogy(r_t1.M_list, exp_ref_H, ':', 'Color', [0.850 0.325 0.098], ...
-    'LineWidth', 1.0, 'DisplayName', 'H:1阶指数收敛');
+    'LineWidth', 1.0, 'DisplayName', 'H: 1st-order exponential');
 
 xlabel('$M$', 'Interpreter', 'latex', 'FontSize', 14);
 ylabel('$L^{\infty}$ error', 'Interpreter', 'latex', 'FontSize', 14);
@@ -132,13 +115,10 @@ hold off;
 work_dir = '..';
 saveas(fig, fullfile(work_dir, 'ex3_convergence_log.png'));
 print(fig, fullfile(work_dir, 'ex3_convergence_log'), '-depsc');
-fprintf('收敛对数图已保存：ex3_convergence_log.png / .eps\n');
+fprintf('Convergence plot saved: ex3_convergence_log.png / .eps\n');
 
-%% ==================== 打印 LaTeX 表格结果 ====================
 print_results(results, t_list);
 
-
-%% ==================== 函数1：计算例3初值条件的 Fourier 系数（向量化） ====================
 function modes = compute_initial_modes_ex3(M, N_fft, l)
     h = l / N_fft;
     x = (0:N_fft-1) * h;
@@ -182,7 +162,6 @@ function modes = compute_initial_modes_ex3(M, N_fft, l)
 end
 
 
-%% ==================== 函数2：从预计算模态中筛选 |m_i|<=M 的子集 ====================
 function modes_filtered = filter_modes(modes_all, M)
     keep = false(1, length(modes_all));
     for i = 1:length(modes_all)
@@ -193,8 +172,6 @@ function modes_filtered = filter_modes(modes_all, M)
     modes_filtered = modes_all(keep);
 end
 
-
-%% ==================== 函数3：局部冻结系数法求场值（3D网格，单时刻） ====================
 function [E_grid, H_grid] = evaluate_field_variable_coeff(modes, t, N, l, mu_func, eps_func)
     h = l / N;
     x = (0:N-1) * h;
@@ -265,8 +242,6 @@ function [E_grid, H_grid] = evaluate_field_variable_coeff(modes, t, N, l, mu_fun
     end
 end
 
-
-%% ==================== 函数3b：局部冻结系数法批量求场值（多时刻，仅用于参考解） ====================
 function [E_results, H_results] = evaluate_field_variable_coeff_batch(modes, t_list, N, l, mu_func, eps_func)
     n_t = length(t_list);
     h = l / N;
@@ -361,8 +336,6 @@ function [E_results, H_results] = evaluate_field_variable_coeff_batch(modes, t_l
     end
 end
 
-
-%% ==================== 函数3c：局部冻结系数法求2D切片场值（固定x3，高效计算） ====================
 function [E_slice, H_slice] = evaluate_field_slice_2d(modes, t, N, l, x3_val, mu_func, eps_func)
     h = l / N;
     x = (0:N-1) * h;
@@ -434,7 +407,6 @@ function [E_slice, H_slice] = evaluate_field_slice_2d(modes, t, N, l, x3_val, mu
 end
 
 
-%% ==================== 函数4：计算 a0, b, c0, d（论文表1分解） ====================
 function [a0, b, c0, d] = compute_abcd(m1, m2, m3)
     if m1 ~= 0 && m2 ~= 0 && m3 ~= 0
         a0 = [m1*m2; -(m3^2+m1^2); m3*m2];
@@ -475,7 +447,6 @@ function [a0, b, c0, d] = compute_abcd(m1, m2, m3)
 end
 
 
-%% ==================== 函数5：等距网格上的离散三范数误差 ====================
 function [err_Linf, err_L2, err_H1] = compute_error_norms(U_exact, U_h, h)
     dV = h^3;
     diff_L2_sq = 0;  diff_gr_sq = 0;  Linf_max = 0;
@@ -491,8 +462,6 @@ function [err_Linf, err_L2, err_H1] = compute_error_norms(U_exact, U_h, h)
     err_H1   = sqrt(dV * (diff_L2_sq + diff_gr_sq));
 end
 
-
-%% ==================== 函数6：绘制切片图像（电磁场数值解，纵轴自适应，无标题） ====================
 function plot_field_slice(E_slice, H_slice, N, l, x3_val)
     h = l / N;
     x = (0:N-1) * h;
@@ -516,11 +485,9 @@ function plot_field_slice(E_slice, H_slice, N, l, x3_val)
     work_dir = '..';
     saveas(fig, fullfile(work_dir, 'ex3_field_slice.png'));
     print(fig, fullfile(work_dir, 'ex3_field_slice'), '-depsc');
-    fprintf('切片图像已保存：ex3_field_slice.png / .eps\n');
+    fprintf('Slice figure saved: ex3_field_slice.png / .eps\n');
 end
 
-
-%% ==================== 函数7：绘制绝对误差切片图像（纵轴自适应，无标题） ====================
 function plot_error_slice(E_exact, H_exact, E_M, H_M, N, l, x3_val)
     h = l / N;
     x = (0:N-1) * h;
@@ -551,13 +518,11 @@ function plot_error_slice(E_exact, H_exact, E_M, H_M, N, l, x3_val)
     work_dir = '..';
     saveas(fig, fullfile(work_dir, 'ex3_error_slice.png'));
     print(fig, fullfile(work_dir, 'ex3_error_slice'), '-depsc');
-    fprintf('误差切片图像已保存：ex3_error_slice.png / .eps\n');
+    fprintf('Error-slice figure saved: ex3_error_slice.png / .eps\n');
 end
 
-
-%% ==================== 函数8：打印 LaTeX 表格结果 ====================
 function print_results(results, t_list)
-    fprintf('\n\n==================== LaTeX 表格数据 ====================\n');
+    fprintf('\n\n==================== LaTeX table data ====================\n');
     for t_idx = 1:length(t_list)
         t = t_list(t_idx);
         rkey_print = sprintf('t%d', round(t*10));
@@ -567,7 +532,7 @@ function print_results(results, t_list)
 
         fprintf('\n----- t = %.1f s -----\n', t);
 
-        fprintf('\n%% 电场 E (t=%.1fs)\n', t);
+        fprintf('\n%% Electric field E (t=%.1fs)\n', t);
         for i = 1:nM
             oLinf = NaN;  oL2 = NaN;  oH1 = NaN;
             if i > 1
@@ -581,7 +546,7 @@ function print_results(results, t_list)
                 r.err_E.H1(i), fmt_order(oH1), r.times(i));
         end
 
-        fprintf('\n%% 磁场 H (t=%.1fs)\n', t);
+        fprintf('\n%% Magnetic field H (t=%.1fs)\n', t);
         for i = 1:nM
             oLinf = NaN;  oL2 = NaN;  oH1 = NaN;
             if i > 1
@@ -595,7 +560,7 @@ function print_results(results, t_list)
                 r.err_H.H1(i), fmt_order(oH1), r.times(i));
         end
     end
-    fprintf('\n==================== 表格数据结束 ====================\n');
+    fprintf('\n==================== End of table data ====================\n');
 end
 
 function s = fmt_order(o)
