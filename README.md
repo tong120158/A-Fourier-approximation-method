@@ -1,11 +1,10 @@
-# An Fourier approximation method — Project Structure
-
+# A Fourier approximation method — Project Structur
 MATLAB code accompanying the paper *An Efficient Fourier Approximation Method for Maxwell’s Equations with Variable Coefficients*.
 
 ## Directory layout
 
 ```
-An Fourier approximation method/
+A Fourier approximation method/
 ├── README.md                 # this file
 ├── example_2/                # Example 2: constant-coefficient Maxwell, epsilon = mu = 1
 │   ├── ex2.m                 # Algorithm 4.1
