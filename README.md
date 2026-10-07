@@ -1,4 +1,4 @@
-# An Fourier approximation method — Project Structure
+# A Fourier approximation method — Project Structure
 
 MATLAB code accompanying the paper *An Efficient Fourier Approximation Method for Maxwell’s Equations with Variable Coefficients*.
 
